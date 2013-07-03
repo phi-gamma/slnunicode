@@ -107,8 +107,7 @@ http://www.unicode.org/Public/UNIDATA/PropList.txt
 
 #endif
 
-
-
+#define luaL_register(L,n,l)	(luaL_openlib(L,(n),(l),0))
 
 #include "slnudata.c"
 #define charinfo(c) (~0xFFFF&(c) ? 0 : GetUniCharInfo(c)) /* BMP only */
