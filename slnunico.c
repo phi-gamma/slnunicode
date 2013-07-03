@@ -94,6 +94,21 @@ http://www.unicode.org/Public/UNIDATA/PropList.txt
 # define SLN_UNICODENAME "unicode"
 #endif
 
+#define LUA_MAXCAPTURES 32
+#if defined(LUA_USELONGLONG)
+
+#define LUA_INTFRMLEN           "ll"
+#define LUA_INTFRM_T            long long
+
+#else
+
+#define LUA_INTFRMLEN           "l"
+#define LUA_INTFRM_T            long
+
+#endif
+
+
+
 
 #include "slnudata.c"
 #define charinfo(c) (~0xFFFF&(c) ? 0 : GetUniCharInfo(c)) /* BMP only */
@@ -161,7 +176,8 @@ static unsigned utf8_deco (const char **pp, const char *end)
 				goto seq;
 		} else if (e != p && 0x80 == (0xC0&*p) /* check 3rd */
 			/* catch 0xF4 < first and other out-of-bounds */
-			&& 0x110000 > (code = (0x0F&first)<<18 | code<<6 | (0x3F&*p++))
+			/* TH: add the 256 out-of-range glyphs in 'plane 18' */
+			&& 0x110100 > (code = (0x0F&first)<<18 | code<<6 | (0x3F&*p++))
 			&& 0xFFFF < code /* not a 16 bitty */
 		)
 			goto seq;
@@ -190,7 +206,8 @@ static unsigned utf8_oced (const char **pp, const char *start)
 		if (0xE0 == (0xF0&*--p)) { /* 3 byte starter */
 			if (0xF800&(code |= (0x0F&*p)<<12)) goto seq;
 		} else if (0x80 == (0xC0&*p) && s<=--p /* valid 4 byte ? */
-			&& 0x110000 > (code |= (0x0F&*p)<<18 | (0x3F&p[1])<<12)
+			/* TH: add the 256 out-of-range glyphs in 'plane 18' */
+			&& 0x110100 > (code |= (0x0F&*p)<<18 | (0x3F&p[1])<<12)
 			&& 0xFFFF < code
 		)
 			goto seq;
@@ -379,7 +396,8 @@ static int unic_byte (lua_State *L) {
 static int unic_char (lua_State *L) {
 	int i, n = lua_gettop(L);	/* number of arguments */
 	int mode = lua_tointeger(L, lua_upvalueindex(1)), mb = MODE_MBYTE(mode);
-	unsigned lim = mb ? 0x110000 : 0x100;
+    /* TH: add the 256 out-of-range glyphs in 'plane 18' */
+	unsigned lim = mb ? 0x110100 : 0x100;
  
 	luaL_Buffer b;
 	luaL_buffinit(L, &b);
@@ -939,6 +957,8 @@ static int gmatch_aux (lua_State *L) {
 	ms.L = L;
 	ms.src_init = s;
 	ms.src_end = s+ls;
+    ms.mode = lua_tointeger(L, lua_upvalueindex(4));
+    ms.mb = MODE_MBYTE(ms.mode);
 	for (src = s + (size_t)lua_tointeger(L, lua_upvalueindex(3));
 			src <= ms.src_end;
 			src++)
@@ -963,7 +983,8 @@ static int gmatch (lua_State *L) {
 	luaL_checkstring(L, 2);
 	lua_settop(L, 2);
 	lua_pushinteger(L, 0);
-	lua_pushcclosure(L, gmatch_aux, 3);
+	lua_pushinteger(L, lua_upvalueindex(1));
+	lua_pushcclosure(L, gmatch_aux, 4);
 	return 1;
 }
 
@@ -1282,7 +1303,7 @@ int ext_uni_match ( void *state, const char *s, size_t n,
 }
 #endif
 
-static const luaL_reg uniclib[] = {
+static const luaL_Reg uniclib[] = {
 	{"byte", unic_byte}, /* no cluster ! */
 	{"char", unic_char},
 	{"dump", str_dump},
@@ -1321,7 +1342,9 @@ LUALIB_API int luaopen_unicode (lua_State *L) {
 	/* register unicode itself so require("unicode") works */
 	luaL_register(L, SLN_UNICODENAME,
 		uniclib + (sizeof uniclib/sizeof uniclib[0] - 1)); /* empty func list */
-	/* lua_pop(L, 1); http://lua-users.org/lists/lua-l/2007-11/msg00070.html */
+	lua_pop(L, 1);
+	lua_getglobal(L,SLN_UNICODENAME);
+	lua_newtable(L);
 	lua_pushinteger(L, MODE_ASCII);
 	luaL_register(L, SLN_UNICODENAME ".ascii", uniclib);
 #ifdef SLNUNICODE_AS_STRING
@@ -1360,7 +1383,6 @@ LUALIB_API int luaopen_unicode (lua_State *L) {
 		}
 	}
 #endif
-	lua_settop(L, 2); /* http://lua-users.org/lists/lua-l/2007-11/msg00070.html */
 	return 1;
 }
 
